@@ -10,6 +10,7 @@ import { useChamberStore } from '../stores/chamberStore';
 import { useLacquerStore } from '../stores/lacquerStore';
 import { useStringingStore } from '../stores/stringingStore';
 import { formatDate } from '../utils/layer';
+import { remainingDefects } from '../types/stringing';
 import { WOOD_SPECIES } from '../types/wood-board';
 import type { TimelineEvent } from '../types/ui';
 
@@ -66,8 +67,17 @@ const events = computed<TimelineEvent[]>(() => {
     list.push({
       label: `上弦 · ${stringing.guqinNo}`,
       at: formatDate(stringing.strungAt),
-      text: `${stringing.stringType}，弦距 ${stringing.stringGap}mm，缺陷 ${stringing.defects.join('/')}，九德：${stringing.nineVirtues}`,
+      text: `${stringing.stringType}，弦距 ${stringing.stringGap}mm，九德：${stringing.nineVirtues}`,
       type: 'success',
+    });
+    stringing.trials.forEach((trial) => {
+      const remaining = remainingDefects(trial);
+      list.push({
+        label: `试音 · ${stringing.guqinNo}`,
+        at: formatDate(trial.testedAt),
+        text: `试音人 ${trial.tester}，${remaining.length ? `余 ${remaining.join('/')}` : '毛病已净'}，按音：${trial.anNote}`,
+        type: remaining.length ? 'danger' : 'info',
+      });
     });
   });
   return list.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8);
@@ -93,7 +103,7 @@ const events = computed<TimelineEvent[]>(() => {
         <StatBadge label="平均推进比" :value="summary.averageRatio" unit="%" status="warning" />
       </el-col>
       <el-col :xs="12" :md="6">
-        <StatBadge label="待上弦" :value="pendingString" unit="张" :status="pendingString ? 'danger' : 'success'" />
+        <StatBadge label="上弦待过关" :value="pendingString" unit="张" :status="pendingString ? 'danger' : 'success'" />
       </el-col>
     </el-row>
 
@@ -115,7 +125,7 @@ const events = computed<TimelineEvent[]>(() => {
       <template #header>
         <div class="card-head">
           <span>琴坯阶段明细</span>
-          <span class="card-note">缺项会在「缺失项」列标出</span>
+          <span class="card-note">缺项会在「缺失项」列标出；上弦看最新一笔试音，余下毛病一并列出</span>
         </div>
       </template>
       <FilterBar

@@ -47,7 +47,7 @@ async function handleExport() {
         <el-menu-item index="/boards">板材登记</el-menu-item>
         <el-menu-item index="/chambers">槽腹尺寸</el-menu-item>
         <el-menu-item index="/lacquer">灰胎髹漆</el-menu-item>
-        <el-menu-item index="/stringing">上弦评价</el-menu-item>
+        <el-menu-item index="/stringing">上弦试音</el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>

@@ -2,22 +2,27 @@ import { defineStore } from 'pinia';
 import { db } from '../utils/db';
 import { uid } from '../utils/id';
 import { toPlain } from '../utils/plain';
-import type { StringDefect, StringType, Stringing, ToneVersion } from '../types/stringing';
+import {
+  latestTrial,
+  normalizeDefects,
+  remainingDefects,
+  sortTrials,
+  type StringType,
+  type Stringing,
+  type ToneTrial,
+  type TrialInput,
+} from '../types/stringing';
 
 export interface StringingInput {
   guqinNo: string;
   stringType: StringType;
   nut: string;
   stringGap: number;
-  sanNote: string;
-  anNote: string;
-  fanNote: string;
   nineVirtues: string;
-  defects: StringDefect[];
   strungAt?: string;
   operator: string;
-  /** 保存时是否记录一条评语历史版本（用于文字版本对照） */
-  keepVersion?: boolean;
+  /** 上弦当次试音（登记记录时一并留下第一笔） */
+  firstTrial: TrialInput;
 }
 
 interface StringingState {
@@ -25,7 +30,7 @@ interface StringingState {
   hydrated: boolean;
 }
 
-/** 上弦与文字评语（纯文本，不做音频处理） */
+/** 上弦与试音记录（纯文本评语，不做音频处理；试音一笔一笔追加，往次原样保留） */
 export const useStringingStore = defineStore('stringing', {
   state: (): StringingState => ({ stringings: [], hydrated: false }),
 
@@ -33,21 +38,27 @@ export const useStringingStore = defineStore('stringing', {
     byGuqin(state) {
       return (guqinNo: string): Stringing | undefined => state.stringings.find((s) => s.guqinNo === guqinNo);
     },
-    /** 三段评语 + 九德的文字检索 */
+    /** 琴号 / 九德 / 各笔试音文字与试音人的检索 */
     search(state) {
       return (keyword: string): Stringing[] => {
         const kw = keyword.trim().toLowerCase();
         if (!kw) return state.stringings;
         return state.stringings.filter((s) =>
-          [s.guqinNo, s.sanNote, s.anNote, s.fanNote, s.nineVirtues, s.operator, s.defects.join(' ')]
+          [
+            s.guqinNo,
+            s.nineVirtues,
+            s.operator,
+            ...s.trials.flatMap((t) => [t.sanNote, t.anNote, t.fanNote, t.tester, t.defects.join(' ')]),
+          ]
             .join(' ')
             .toLowerCase()
             .includes(kw),
         );
       };
     },
+    /** 最新一笔试音仍挂着毛病的记录数 */
     defectCount(state): number {
-      return state.stringings.filter((s) => s.defects.some((d) => d !== '无')).length;
+      return state.stringings.filter((s) => remainingDefects(latestTrial(s)).length > 0).length;
     },
   },
 
@@ -58,66 +69,67 @@ export const useStringingStore = defineStore('stringing', {
     },
 
     async addStringing(input: StringingInput): Promise<Stringing> {
+      const strungAt = input.strungAt ?? new Date().toISOString();
+      const firstTrial: ToneTrial = {
+        id: uid('trial'),
+        testedAt: input.firstTrial.testedAt ?? strungAt,
+        tester: input.firstTrial.tester.trim(),
+        sanNote: input.firstTrial.sanNote.trim(),
+        anNote: input.firstTrial.anNote.trim(),
+        fanNote: input.firstTrial.fanNote.trim(),
+        defects: normalizeDefects(input.firstTrial.defects),
+      };
       const stringing: Stringing = {
         id: uid('stringing'),
         guqinNo: input.guqinNo.trim(),
         stringType: input.stringType,
         nut: input.nut.trim(),
         stringGap: Number(input.stringGap) || 0,
-        sanNote: input.sanNote.trim(),
-        anNote: input.anNote.trim(),
-        fanNote: input.fanNote.trim(),
         nineVirtues: input.nineVirtues.trim(),
-        defects: input.defects.length ? input.defects : ['无'],
-        strungAt: input.strungAt ?? new Date().toISOString(),
+        strungAt,
         operator: input.operator.trim(),
-        noteVersions: [],
+        trials: [firstTrial],
       };
       await db.stringings.put(toPlain(stringing));
       this.stringings = [stringing, ...this.stringings];
       return stringing;
     },
 
-    /** 保存评语：如内容有变化且 keepVersion，则把改动前的评语存入历史版本 */
-    async updateStringing(id: string, patch: Partial<StringingInput>) {
+    /** 更新上弦记录本身（琴号、弦、九德等）；试音笔不在此改动 */
+    async updateStringing(id: string, patch: Partial<Omit<StringingInput, 'firstTrial'>>) {
       const current = this.stringings.find((s) => s.id === id);
       if (!current) return;
-      const notesChanged =
-        (patch.sanNote !== undefined && patch.sanNote.trim() !== current.sanNote) ||
-        (patch.anNote !== undefined && patch.anNote.trim() !== current.anNote) ||
-        (patch.fanNote !== undefined && patch.fanNote.trim() !== current.fanNote) ||
-        (patch.nineVirtues !== undefined && patch.nineVirtues.trim() !== current.nineVirtues);
-
-      const versions = [...current.noteVersions];
-      if (notesChanged && patch.keepVersion !== false) {
-        const version: ToneVersion = {
-          id: uid('tone'),
-          savedAt: new Date().toISOString(),
-          sanNote: current.sanNote,
-          anNote: current.anNote,
-          fanNote: current.fanNote,
-          nineVirtues: current.nineVirtues,
-        };
-        versions.unshift(version);
-      }
-
       const next: Stringing = {
         ...current,
         guqinNo: patch.guqinNo?.trim() ?? current.guqinNo,
         stringType: patch.stringType ?? current.stringType,
         nut: patch.nut?.trim() ?? current.nut,
         stringGap: patch.stringGap !== undefined ? Number(patch.stringGap) : current.stringGap,
-        sanNote: patch.sanNote?.trim() ?? current.sanNote,
-        anNote: patch.anNote?.trim() ?? current.anNote,
-        fanNote: patch.fanNote?.trim() ?? current.fanNote,
         nineVirtues: patch.nineVirtues?.trim() ?? current.nineVirtues,
-        defects: patch.defects?.length ? patch.defects : current.defects,
         strungAt: patch.strungAt ?? current.strungAt,
         operator: patch.operator?.trim() ?? current.operator,
-        noteVersions: versions,
       };
       await db.stringings.put(toPlain(next));
       this.stringings = this.stringings.map((s) => (s.id === id ? next : s));
+    },
+
+    /** 记一笔试音：只追加，往次的笔原样保留 */
+    async addTrial(stringingId: string, input: TrialInput): Promise<ToneTrial | undefined> {
+      const current = this.stringings.find((s) => s.id === stringingId);
+      if (!current) return undefined;
+      const trial: ToneTrial = {
+        id: uid('trial'),
+        testedAt: input.testedAt ?? new Date().toISOString(),
+        tester: input.tester.trim(),
+        sanNote: input.sanNote.trim(),
+        anNote: input.anNote.trim(),
+        fanNote: input.fanNote.trim(),
+        defects: normalizeDefects(input.defects),
+      };
+      const next: Stringing = { ...current, trials: sortTrials([trial, ...current.trials]) };
+      await db.stringings.put(toPlain(next));
+      this.stringings = this.stringings.map((s) => (s.id === stringingId ? next : s));
+      return trial;
     },
 
     async removeStringing(id: string) {

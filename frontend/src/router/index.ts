@@ -11,7 +11,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/boards', name: 'boards', component: BoardList, meta: { title: '板材登记与配对' } },
   { path: '/chambers', name: 'chambers', component: ChamberEditor, meta: { title: '槽腹尺寸记录' } },
   { path: '/lacquer', name: 'lacquer', component: LacquerLedger, meta: { title: '灰胎髹漆遍次' } },
-  { path: '/stringing', name: 'stringing', component: StringingLog, meta: { title: '上弦与音色评价' } },
+  { path: '/stringing', name: 'stringing', component: StringingLog, meta: { title: '上弦与试音记录' } },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('../pages/NotFound.vue'), meta: { title: '页面不存在' } },
 ];
 

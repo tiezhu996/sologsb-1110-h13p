@@ -3,7 +3,8 @@ import { useBoardStore } from '../stores/boardStore';
 import { useChamberStore } from '../stores/chamberStore';
 import { useLacquerStore } from '../stores/lacquerStore';
 import { useStringingStore } from '../stores/stringingStore';
-import { cumulativeThickness } from '../utils/layer';
+import { cumulativeThickness, formatDate } from '../utils/layer';
+import { latestTrial, remainingDefects } from '../types/stringing';
 
 export type StageKey = 'select' | 'carve' | 'lacquer' | 'string';
 
@@ -37,7 +38,9 @@ const TARGET_MM = 1.0;
 
 /**
  * 按选材/掏膛/灰胎/上弦计算每张琴的阶段推进比与缺失项。
- * 选材：面板与底板配对齐全；掏膛：有槽腹记录；灰胎：累计厚度达标；上弦：有上弦记录。
+ * 选材：面板与底板配对齐全；掏膛：有槽腹记录；灰胎：累计厚度达标。
+ * 上弦：看最新一笔试音——还挂着打板/抗指/沙音就不算过关，缺失项里写清剩哪几样；
+ * 下笔试音去净毛病后，进度自动接上。
  */
 export function useStageProgress() {
   const boardStore = useBoardStore();
@@ -63,6 +66,9 @@ export function useStageProgress() {
       const layers = lacquerStore.layers.filter((l) => l.guqinNo === guqinNo);
       const total = cumulativeThickness(layers);
       const stringing = stringingStore.stringings.find((s) => s.guqinNo === guqinNo);
+      const trial = stringing ? latestTrial(stringing) : undefined;
+      const remaining = remainingDefects(trial);
+      const stringPassed = Boolean(stringing && trial && remaining.length === 0);
       const species = panel?.species ?? base?.species ?? '';
 
       const stages: StageItem[] = [
@@ -87,8 +93,14 @@ export function useStageProgress() {
         {
           key: 'string',
           label: STAGE_LABELS.string,
-          done: Boolean(stringing),
-          detail: stringing ? `${stringing.stringType}，弦距 ${stringing.stringGap}mm` : '尚未上弦',
+          done: stringPassed,
+          detail: !stringing
+            ? '尚未上弦'
+            : !trial
+              ? '尚无试音记录'
+              : remaining.length
+                ? `最近试音 ${formatDate(trial.testedAt)}（${trial.tester}）仍余 ${remaining.join('、')}`
+                : `${stringing.stringType}，弦距 ${stringing.stringGap}mm，最近试音 ${formatDate(trial.testedAt)} 无毛病`,
         },
       ];
 
@@ -98,7 +110,9 @@ export function useStageProgress() {
         species,
         stages,
         ratio: Math.round((doneCount / stages.length) * 100),
-        missing: stages.filter((s) => !s.done).map((s) => s.label),
+        missing: stages
+          .filter((s) => !s.done)
+          .map((s) => (s.key === 'string' && remaining.length ? `${s.label}（余 ${remaining.join('、')}）` : s.label)),
         cumulativeMm: Number(total.toFixed(2)),
       };
     }),
