@@ -4,6 +4,8 @@ import { useChamberStore } from '../stores/chamberStore';
 import { useLacquerStore } from '../stores/lacquerStore';
 import { useStringingStore } from '../stores/stringingStore';
 import { cumulativeThickness } from '../utils/layer';
+import { isStringingPassed, latestCheck, remainingDefects, type Stringing } from '../types/stringing';
+import { formatDate } from '../utils/layer';
 
 export type StageKey = 'select' | 'carve' | 'lacquer' | 'string';
 
@@ -12,6 +14,8 @@ export interface StageItem {
   label: string;
   done: boolean;
   detail: string;
+  /** 缺失项列里展示的说法（默认与 label 相同） */
+  missingLabel?: string;
 }
 
 export interface StageProgress {
@@ -35,9 +39,31 @@ export const STAGE_LABELS: Record<StageKey, string> = {
 /** 灰胎完工目标累计厚度（mm） */
 const TARGET_MM = 1.0;
 
+/** 上弦阶段明细：区分未上弦 / 待试音 / 未过关（列剩余毛病）/ 已过关 */
+function stringStageDetail(stringing: Stringing | undefined): string {
+  if (!stringing) return '尚未上弦';
+  const latest = latestCheck(stringing);
+  const base = `${stringing.stringType}，弦距 ${stringing.stringGap}mm`;
+  if (!latest) return `${base}；已上弦，尚未试音（共 0 笔）`;
+  const remain = remainingDefects(stringing);
+  const head = `${base}；最近试音 ${formatDate(latest.checkedAt)} ${latest.checker}`;
+  if (remain.length === 0) return `${head}；毛病去净，过关（共 ${stringing.checks.length} 笔）`;
+  return `${head}；未过关，剩 ${remain.join('、')}（共 ${stringing.checks.length} 笔）`;
+}
+
+/** 缺失项列的说法：未上弦 / 上弦待试音 / 上弦未过关+剩余毛病 */
+function stringStageMissingLabel(stringing: Stringing | undefined): string {
+  if (!stringing) return STAGE_LABELS.string;
+  const latest = latestCheck(stringing);
+  if (!latest) return `${STAGE_LABELS.string}待试音`;
+  const remain = remainingDefects(stringing);
+  return remain.length ? `${STAGE_LABELS.string}未过关（剩${remain.join('、')}）` : STAGE_LABELS.string;
+}
+
 /**
  * 按选材/掏膛/灰胎/上弦计算每张琴的阶段推进比与缺失项。
- * 选材：面板与底板配对齐全；掏膛：有槽腹记录；灰胎：累计厚度达标；上弦：有上弦记录。
+ * 选材：面板与底板配对齐全；掏膛：有槽腹记录；灰胎：累计厚度达标；
+ * 上弦：有试音笔账且最近一笔无打板/抗指/沙音毛病，毛病未去净时在缺失项列明剩余毛病。
  */
 export function useStageProgress() {
   const boardStore = useBoardStore();
@@ -87,8 +113,9 @@ export function useStageProgress() {
         {
           key: 'string',
           label: STAGE_LABELS.string,
-          done: Boolean(stringing),
-          detail: stringing ? `${stringing.stringType}，弦距 ${stringing.stringGap}mm` : '尚未上弦',
+          done: stringing ? isStringingPassed(stringing) : false,
+          detail: stringStageDetail(stringing),
+          missingLabel: stringStageMissingLabel(stringing),
         },
       ];
 
@@ -98,7 +125,7 @@ export function useStageProgress() {
         species,
         stages,
         ratio: Math.round((doneCount / stages.length) * 100),
-        missing: stages.filter((s) => !s.done).map((s) => s.label),
+        missing: stages.filter((s) => !s.done).map((s) => s.missingLabel ?? s.label),
         cumulativeMm: Number(total.toFixed(2)),
       };
     }),

@@ -66,8 +66,19 @@ const events = computed<TimelineEvent[]>(() => {
     list.push({
       label: `上弦 · ${stringing.guqinNo}`,
       at: formatDate(stringing.strungAt),
-      text: `${stringing.stringType}，弦距 ${stringing.stringGap}mm，缺陷 ${stringing.defects.join('/')}，九德：${stringing.nineVirtues}`,
-      type: 'success',
+      text: `${stringing.stringType}，弦距 ${stringing.stringGap}mm，上弦人 ${stringing.operator}`,
+      type: 'primary',
+    });
+    // 每一次试音各留一笔动态；毛病挂在对应那笔上
+    stringing.checks.forEach((check) => {
+      list.push({
+        label: `试音 · ${stringing.guqinNo}`,
+        at: formatDate(check.checkedAt),
+        text: check.defects.length
+          ? `${check.checker} 试听：剩 ${check.defects.join('、')}。散：${check.sanNote}`
+          : `${check.checker} 试听：无毛病。散：${check.sanNote}`,
+        type: check.defects.length ? 'danger' : 'success',
+      });
     });
   });
   return list.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8);
@@ -93,7 +104,7 @@ const events = computed<TimelineEvent[]>(() => {
         <StatBadge label="平均推进比" :value="summary.averageRatio" unit="%" status="warning" />
       </el-col>
       <el-col :xs="12" :md="6">
-        <StatBadge label="待上弦" :value="pendingString" unit="张" :status="pendingString ? 'danger' : 'success'" />
+        <StatBadge label="上弦未过关" :value="pendingString" unit="张" :status="pendingString ? 'danger' : 'success'" />
       </el-col>
     </el-row>
 
@@ -132,15 +143,21 @@ const events = computed<TimelineEvent[]>(() => {
         <el-table-column prop="species" label="树种" width="90" />
         <el-table-column label="四阶段" min-width="300">
           <template #default="scope">
-            <el-tag
+            <el-tooltip
               v-for="stage in scope.row.stages"
               :key="stage.key"
-              class="stage-tag"
-              :type="stage.done ? 'success' : 'info'"
-              effect="plain"
+              :content="stage.detail"
+              placement="top"
+              :show-after="200"
             >
-              {{ stage.label }}{{ stage.done ? '✓' : '…' }}
-            </el-tag>
+              <el-tag
+                class="stage-tag"
+                :type="stage.done ? 'success' : 'info'"
+                effect="plain"
+              >
+                {{ stage.label }}{{ stage.done ? '✓' : '…' }}
+              </el-tag>
+            </el-tooltip>
           </template>
         </el-table-column>
         <el-table-column label="推进比" width="180">
